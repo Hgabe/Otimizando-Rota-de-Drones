@@ -33,6 +33,8 @@ class RunResult:
     iterations: int
     timeout: bool
     error: str | None = None
+    plan_actions: list[tuple] | None = None
+    plan_states: list[tuple[int, int, int, int, int]] | None = None
 
 
 def _run_inner(
@@ -73,6 +75,8 @@ def _run_inner(
         )
     path = node.path()
     plan_length = max(0, len(path) - 1)
+    plan_actions = [step[0] for step in path[1:]]
+    plan_states = [step[1] for step in path]
     return RunResult(
         algorithm=name,
         success=True,
@@ -83,6 +87,8 @@ def _run_inner(
         max_fringe_size=viewer.stats["max_fringe_size"],
         iterations=viewer.stats["iterations"],
         timeout=False,
+        plan_actions=plan_actions,
+        plan_states=plan_states,
     )
 
 
