@@ -103,10 +103,10 @@ def main():
  
     plot_taxa_sucesso(by_algo)
  
-    plot_barras(by_algo, "custo",          "Custo medio (pontos)", "Custo Medio",          "2_custo.png")
-    plot_barras(by_algo, "tempo_s",        "Tempo medio (s)",      "Tempo Medio",          "3_tempo.png")
-    plot_barras(by_algo, "nos_expandidos", "Nos expandidos medio", "Nos Expandidos Medio", "4_nos.png")
-    plot_barras(by_algo, "passos",         "Passos medios",        "Passos Medios",        "5_passos.png")
+    plot_barras(by_algo, "pontuação",          "Média de pontuação", " Média de pontuação",          "2_pontuação.png")
+    plot_barras(by_algo, "tempo_s",        "Média de Tempo (s)",      "Média de Tempo",          "3_tempo.png")
+    plot_barras(by_algo, "nos_expandidos", "Média de Nós Expandidos", "Média de Nós Expandidos", "4_nos.png")
+    plot_barras(by_algo, "passos",         "Média de passos",        "Média de Passos",        "5_passos.png")
  
     print(f"\nGraficos salvos em '{OUTPUT_DIR}/'")
  

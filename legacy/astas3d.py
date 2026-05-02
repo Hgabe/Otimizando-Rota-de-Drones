@@ -9,9 +9,6 @@ from simpleai.search import SearchProblem, astar, greedy
 
 pygame.init()
 
-# ---------------------------------------------------------------#
-#                    CONFIGURAÇÕES                               #
-# ---------------------------------------------------------------#
 WIDTH, HEIGHT       = 900, 650
 MAZE_SIZE           = 20
 TILE_W              = 64
@@ -23,10 +20,10 @@ NUM_WIND_GROUPS     = 10
 MAX_WIND_TILES      = 10
 R_ZONE_COST         = 3000
 WIND_COST           = 3
-WIN_DELIVERIES      = 5        
-NUM_CHARGE_STATIONS = 5
-CSV_FILE            = "resultados.csv" 
-MIN_DIST            = 5        
+WIN_DELIVERIES      = 5        # quantas entregas para ganhar
+NUM_CHARGE_STATIONS = 6
+CSV_FILE            = "resultados.csv"  # arquivo de saída das métricas
+MIN_DIST            = 5        # distância mínima entre pontos gerados
 MAX_BATTERY         = int(MAZE_SIZE * MAZE_SIZE * 0.15)
 
 OFFSET_X = WIDTH  // 2
@@ -45,9 +42,6 @@ MIN_LEVEL_FOR_WALL = {1: 1, 2: 2}
 ANIM_SPEED_UP   = 0.4
 ANIM_SPEED_DOWN = 0.2
 
-# ---------------------------------------------------------------#
-#                          PALETA                                #
-# ---------------------------------------------------------------#
 C_FLOOR_TOP    = (210, 220, 200)
 C_FLOOR_R      = (160, 170, 152)
 C_FLOOR_L      = (185, 195, 175)
@@ -60,10 +54,10 @@ C_WALL2_L      = ( 65,  58,  52)
 C_PLAYER_TOP   = (220,  60,  60)
 C_PLAYER_R     = (140,  25,  25)
 C_PLAYER_L     = (180,  40,  40)
-C_COLLECT_TOP  = (100, 180, 255)   
+C_COLLECT_TOP  = (100, 180, 255)   # local de coleta — azul
 C_COLLECT_R    = ( 50, 110, 180)
 C_COLLECT_L    = ( 70, 145, 220)
-C_GOAL_TOP     = (255, 210,  40)   
+C_GOAL_TOP     = (255, 210,  40)   # objetivo — dourado
 C_GOAL_R       = (180, 130,  10)
 C_GOAL_L       = (220, 170,  20)
 C_GOAL_LID     = (255, 230, 100)
@@ -74,13 +68,9 @@ C_WHITE        = (255, 255, 255)
 C_GOLD         = (255, 210,  40)
 C_BATTERY_OK   = ( 80, 220, 120)
 C_BATTERY_LOW  = (255, 100,  60)
-C_CARGO_YES    = ( 80, 255, 180)   
-C_CARGO_NO     = (160, 160, 160)   
+C_CARGO_YES    = ( 80, 255, 180)   # HUD cor quando carregando
+C_CARGO_NO     = (160, 160, 160)   # HUD cor quando vazio
 
-
-# ---------------------------------------------------------------#
-#                        COORDENADAS                             #
-# ---------------------------------------------------------------#
 def to_screen(col, row, height=0):
     sx = OFFSET_X + (col - row) * (TILE_W // 2)
     sy = OFFSET_Y + (col + row) * (TILE_H // 2) - height
@@ -92,10 +82,6 @@ def darken(color, amount):
 def lighten(color, amount):
     return tuple(min(255, c + amount) for c in color)
 
-
-# ---------------------------------------------------------------#
-#                   DADOS DOS MUROS                              #
-# ---------------------------------------------------------------#
 def build_wall_data(walls):
     mult_map   = {}
     height_map = {}
@@ -108,12 +94,13 @@ def build_wall_data(walls):
         height_map[(col, row)] = (TILE_H // 2) + (WALL_H * mult)
     return mult_map, height_map
 
-
-# ---------------------------------------------------------------#
-#                   VALIDAÇÃO DE ACESSIBILIDADE                  #
-# ---------------------------------------------------------------#
-def is_accessible(drone_pos, collect_pos, goal_pos, charge_stations, walls, restricted_zone, maze_size):
-
+def is_accessible(drone_pos, collect_pos, goal_pos,
+                  charge_stations, walls, restricted_zone, maze_size):
+    """
+    Verifica via BFS se drone, coleta e objetivo são todos
+    mutuamente alcançáveis ignorando restrições de nível
+    (só verifica conectividade no plano horizontal).
+    """
     blocked = walls | restricted_zone
 
     def bfs_reachable(start):
@@ -136,19 +123,23 @@ def is_accessible(drone_pos, collect_pos, goal_pos, charge_stations, walls, rest
     critical = [collect_pos, goal_pos] + list(charge_stations)
     return all(p in reachable for p in critical)
 
-
-# ---------------------------------------------------------------#
-#              GERAÇÃO DE UM NOVO CICLO (coleta + objetivo)      #
-# ---------------------------------------------------------------#
 def manhattan(a, b):
     return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
-
 def generate_cycle(drone_pos, charge_stations, walls, maze_size, min_dist):
+    """
+    Gera um novo par (collect_pos, goal_pos) e uma nova zona restrita.
 
+    Regras:
+      - Todos os pontos gerados devem ter distância mínima min_dist
+        entre si e do drone.
+      - A zona restrita não pode cercar o drone, a coleta, o objetivo
+        ou as estações de carregamento (verificado via BFS).
+    """
     all_fixed = {drone_pos} | charge_stations | walls
 
     def random_free_pos(excluded):
+        """Sorteia posição livre com distância mínima de todos os excluídos."""
         for _ in range(2000):
             p = (random.randint(0, maze_size-1),
                  random.randint(0, maze_size-1))
@@ -191,10 +182,6 @@ def generate_cycle(drone_pos, charge_stations, walls, maze_size, min_dist):
 
     return collect_pos, goal_pos, set()
 
-
-# ---------------------------------------------------------------#
-#                    PRIMITIVOS DE DESENHO                       #
-# ---------------------------------------------------------------#
 def draw_iso_box(surface, col, row, box_h, top_col, right_col, left_col,
                  outline=True, outline_alpha=60):
     cx, cy = to_screen(col, row)
@@ -217,7 +204,6 @@ def draw_iso_box(surface, col, row, box_h, top_col, right_col, left_col,
         pygame.draw.polygon(surface, oc, top_face,   1)
         pygame.draw.polygon(surface, oc, right_face, 1)
         pygame.draw.polygon(surface, oc, left_face,  1)
-
 
 def draw_iso_box_floating(surface, col, row, base_z, box_h,
                           top_col, right_col, left_col,
@@ -243,14 +229,9 @@ def draw_iso_box_floating(surface, col, row, base_z, box_h,
         pygame.draw.polygon(surface, oc, right_face, 1)
         pygame.draw.polygon(surface, oc, left_face,  1)
 
-
-# ---------------------------------------------------------------#
-#                           TILES                                #
-# ---------------------------------------------------------------#
 def draw_floor(surface, col, row):
     draw_iso_box(surface, col, row, TILE_H//2,
                  C_FLOOR_TOP, C_FLOOR_R, C_FLOOR_L, outline_alpha=20)
-
 
 def draw_wall(surface, col, row, mult):
     altura = (TILE_H//2) + (WALL_H * mult)
@@ -259,7 +240,6 @@ def draw_wall(surface, col, row, mult):
     else:
         tc, rc, lc = C_WALL2_TOP, C_WALL2_R, C_WALL2_L
     draw_iso_box(surface, col, row, altura, tc, rc, lc, outline_alpha=50)
-
 
 def draw_restricted_zone(surface, col, row):
     cx, cy = to_screen(col, row)
@@ -274,8 +254,8 @@ def draw_restricted_zone(surface, col, row):
     pygame.draw.polygon(zs, (140,50,60,80), top_face)
     surface.blit(zs, (0,0))
 
-
 def draw_collect_point(surface, col, row, pulse):
+    """Local de coleta — cubo azul pulsante."""
     cx, cy = to_screen(col, row)
     shadow = pygame.Surface((TILE_W, TILE_H), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, (0,0,0,60),
@@ -289,8 +269,8 @@ def draw_collect_point(surface, col, row, pulse):
                  lighten(C_COLLECT_R,   10),
                  lighten(C_COLLECT_L,   20))
 
-
 def draw_goal(surface, col, row, pulse):
+    """Objetivo de entrega — cubo dourado pulsante."""
     cx, cy = to_screen(col, row)
     shadow = pygame.Surface((TILE_W, TILE_H), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, (0,0,0,60),
@@ -301,7 +281,6 @@ def draw_goal(surface, col, row, pulse):
     lid = int(6 + 3 * math.sin(pulse))
     draw_iso_box(surface, col, row, h+lid,
                  C_GOAL_LID, darken(C_GOAL_LID, 40), darken(C_GOAL_LID, 20))
-
 
 def draw_charge_station(surface, col, row, pulse):
     cx, cy = to_screen(col, row)
@@ -317,7 +296,6 @@ def draw_charge_station(surface, col, row, pulse):
                  lighten(C_CHARGE_R,   10),
                  lighten(C_CHARGE_L,   20))
 
-
 def draw_wind(surface, col, row):
     cx, cy = to_screen(col, row)
     hw, hh = TILE_W//2, TILE_H//2
@@ -331,10 +309,6 @@ def draw_wind(surface, col, row):
     pygame.draw.polygon(ws, (200,230,255,120), top_face)
     surface.blit(ws, (0,0))
 
-
-# ---------------------------------------------------------------#
-#                       DRONE — DESENHO                          #
-# ---------------------------------------------------------------#
 def draw_drone(surface, col, row, drone_z_px, carrying):
     sx, sy = to_screen(col, row)
     shadow_alpha = max(15, 110 - int(drone_z_px * 0.8))
@@ -354,10 +328,6 @@ def draw_drone(surface, col, row, drone_z_px, carrying):
                           base_z=drone_z_px, box_h=PLAYER_H,
                           top_col=tc, right_col=rc, left_col=lc)
 
-
-# ---------------------------------------------------------------#
-#                            HUD                                 #
-# ---------------------------------------------------------------#
 def draw_hud(surface, score, deliveries, total, steps, level,
              drone_z_px, battery, carrying, small_font):
     pad = 16
@@ -392,7 +362,6 @@ def draw_hud(surface, score, deliveries, total, steps, level,
     pygame.draw.rect(surface, (40,40,60), (bar_x, bar_y, bar_w, bar_h))
     pygame.draw.rect(surface, bat_color,  (bar_x, bar_y, int(bar_w*bat_pct), bar_h))
 
-
 def draw_message(surface, text, font, w, h):
     overlay = pygame.Surface((w, h), pygame.SRCALPHA)
     overlay.fill((0,0,0,160))
@@ -400,16 +369,20 @@ def draw_message(surface, text, font, w, h):
     msg = font.render(text, True, C_GOLD)
     surface.blit(msg, (w//2-msg.get_width()//2, h//2-msg.get_height()//2))
 
-
-# ---------------------------------------------------------------#
-#                              A* 3D                             #
-# ---------------------------------------------------------------#
-
 class DroneProblem(SearchProblem):
+    """
+    Problema de busca para o drone isométrico.
+
+    O simpleai exige que a classe implemente:
+      - actions(state)    → lista de ações possíveis
+      - result(state, action) → estado resultante
+      - is_goal(state)    → True se chegou ao objetivo
+      - heuristic(state)  → estimativa do custo restante
+      - cost(state, action, state2) → custo da ação
+    """
 
     def __init__(self, initial_state, goals, charge_stations,
                  mult_map, restricted_zone, wind, maze_size):
-        # Chama o construtor do simpleai passando o estado inicial
         super().__init__(initial_state=initial_state)
         self.nodes_expanded  = 0   # contador de nós expandidos
         self.goals           = goals
@@ -427,11 +400,12 @@ class DroneProblem(SearchProblem):
         self.nodes_expanded += 1
         col, row, level, battery = state
         valid_actions = []
+
         if battery == 0:
             if (col, row) in self.charge_stations and level == 0:
-                pass 
+                pass  # pode descer/subir para recarregar — mas já está em 0
             else:
-                return []  
+                return []  # estado morto
 
         directions = [(-1,0),(1,0),(0,-1),(0,1)]
 
@@ -441,6 +415,8 @@ class DroneProblem(SearchProblem):
                 continue
             dest = (nc, nr)
             if level < self._min_level_for_cell(dest):
+                continue
+            if dest in self.restricted_zone:
                 continue
             new_battery = battery - 1
             if dest in self.charge_stations and level == 0:
@@ -460,6 +436,9 @@ class DroneProblem(SearchProblem):
         return valid_actions
 
     def result(self, state, action):
+        """
+        Aplica action em state e retorna o novo estado.
+        """
         col, row, level, battery = state
 
         if action['type'] == 'move':
@@ -483,10 +462,17 @@ class DroneProblem(SearchProblem):
         return state
 
     def is_goal(self, state):
+        """Objetivo: posição em goals e nível 0 (pousado)."""
         col, row, level, battery = state
         return (col, row) in self.goals and level == 0
 
     def heuristic(self, state):
+        """
+        Estimativa admissível do custo restante.
+        Distância de Manhattan até o objetivo mais próximo
+        + custo de descer até o nível 0
+        + penalidade se bateria estimada ao chegar for baixa.
+        """
         col, row, level, battery = state
         dist_to_goal = min(
             abs(col-t[0]) + abs(row-t[1]) for t in self.goals
@@ -499,18 +485,31 @@ class DroneProblem(SearchProblem):
         return custo_base
 
     def cost(self, state1, action, state2):
+        """
+        Custo de executar action em state1 resultando em state2.
+        Movimentos horizontais têm custo base 1 + penalidades de terreno.
+        Subir e descer custam 1.
+        """
         if action['type'] == 'move':
             col2, row2, _, _ = state2
             dest = (col2, row2)
-            rzone_cost    = R_ZONE_COST if dest in self.restricted_zone else 0
             _, _, level1, _ = state1
             wind_levels   = self.wind.get(dest, frozenset())
             wind_cost_val = WIND_COST if level1 in wind_levels else 0
-            return 1 + rzone_cost + wind_cost_val
-        return 1 
+            return 1 + wind_cost_val
+        return 1  # rise e descend custam 1
 
+def a_star_3d(start_pos, start_level, start_battery,
+              goals, charge_stations,
+              mult_map, restricted_zone, wind, maze_size,
+              _return_nodes=False, algorithm='astar'):
+    """
+    Wrapper que instancia DroneProblem, chama o astar do simpleai
+    e converte o resultado para lista de ações compatível com o
+    loop do jogo.
 
-def a_star_3d(start_pos, start_level, start_battery, goals, charge_stations, mult_map, restricted_zone, wind, maze_size, _return_nodes=False, algorithm='astar'):
+    Retorna lista de dicts [{'type': ..., ...}, ...] ou None.
+    """
     initial_state = (start_pos[0], start_pos[1], start_level, start_battery)
 
     problem = DroneProblem(
@@ -533,10 +532,6 @@ def a_star_3d(start_pos, start_level, start_battery, goals, charge_stations, mul
         return actions_list, problem.nodes_expanded
     return actions_list
 
-
-# ---------------------------------------------------------------#
-#                       GERAÇÃO DO MAPA                          #
-# ---------------------------------------------------------------#
 def generate_map(maze_size, num_stations):
     used = set()
 
@@ -578,16 +573,27 @@ def generate_map(maze_size, num_stations):
 
     return drone_pos, charge_stations, walls, mult_map, height_map, wind
 
-
-
-# ---------------------------------------------------------------#
-#                     EXPORTAÇÃO DE MÉTRICAS                     #
-# ---------------------------------------------------------------#
-
 _instancia_counter = [0]
 
 def save_metrics(algoritmo, sucesso, custo, tempo_s, nos_expandidos, entregas):
+    """
+    Salva os resultados de uma execução no CSV de métricas.
+    Cria o arquivo com cabeçalho se ainda não existir.
+    Cada linha representa uma instância executada.
 
+    Colunas:
+      instancia       : número sequencial da execução
+      algoritmo       : nome do algoritmo usado (ex: "astar")
+      sucesso         : True se completou todas as entregas
+      custo           : score final (pontos)
+      tempo_s         : tempo total em segundos
+      nos_expandidos  : total de nós expandidos pelo A* na sessão
+      entregas        : quantas entregas foram concluídas
+      max_battery     : bateria máxima configurada
+      maze_size       : tamanho do mapa
+      num_estacoes    : número de estações de carregamento
+      num_entregas_alvo: quantas entregas para ganhar
+    """
     _instancia_counter[0] += 1
     file_exists = os.path.isfile(CSV_FILE)
     with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
@@ -615,9 +621,6 @@ def save_metrics(algoritmo, sucesso, custo, tempo_s, nos_expandidos, entregas):
           f"sucesso={sucesso} | custo={custo} | "
           f"tempo={tempo_s:.2f}s | nós={nos_expandidos}")
 
-# ---------------------------------------------------------------#
-#                     ORDEM DE RENDERIZAÇÃO                      #
-# ---------------------------------------------------------------#
 def render_order(maze_size):
     cells = []
     for s in range(2*maze_size-1):
@@ -627,10 +630,6 @@ def render_order(maze_size):
                 cells.append((col, row))
     return cells
 
-
-# ---------------------------------------------------------------#
-#                        LOOP PRINCIPAL                          #
-# ---------------------------------------------------------------#
 def run_game():
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Drone Cargo 3D")
@@ -657,7 +656,7 @@ def run_game():
     drone_z_px    = 0.0
     drone_col, drone_row = drone_pos
 
-    carrying  = False 
+    carrying  = False   # False = vai buscar carga; True = vai entregar
 
     battery    = MAX_BATTERY
     score      = 0
@@ -667,7 +666,7 @@ def run_game():
 
     action_queue = []
     action_timer = 0
-    total_nodes_expanded = 0  
+    total_nodes_expanded = 0  # acumula nós expandidos de todas as chamadas A*
 
     running    = True
     game_over  = False
@@ -699,6 +698,7 @@ def run_game():
                          total_nodes_expanded, deliveries)
 
         if not game_over and not action_queue:
+
             if not carrying:
                 current_goals = {collect_pos}
             else:
@@ -757,9 +757,6 @@ def run_game():
                     wind_levels = wind.get(drone_pos, frozenset())
                     if drone_level in wind_levels:
                         score -= WIND_COST
-                    if drone_pos in restricted_zone:
-                        score -= R_ZONE_COST
-
                     if drone_pos in charge_stations and drone_level == 0:
                         battery = MAX_BATTERY
 
@@ -782,7 +779,6 @@ def run_game():
                             save_metrics("astar", True, score, elapsed,
                                          total_nodes_expanded, deliveries)
                         else:
-                            # Gera novo ciclo após entrega
                             collect_pos, goal_pos, restricted_zone = generate_cycle(
                                 drone_pos, charge_stations, walls,
                                 MAZE_SIZE, MIN_DIST
@@ -874,7 +870,6 @@ def run_game():
 
     pygame.quit()
     return score, deliveries, steps
-
 
 if __name__ == "__main__":
     run_game()

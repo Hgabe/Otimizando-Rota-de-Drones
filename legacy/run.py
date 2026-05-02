@@ -20,7 +20,7 @@ from astas3d import (
     run_game,
 )
 
-NUM_INSTANCES = 100
+NUM_INSTANCES = 500
 ALGORITHMS    = ["astar", "greedy"]
 RESULTS_FILE  = "resultados.json"
 
@@ -177,7 +177,7 @@ def simulate(algo, seed):
         "seed":           seed,
         "sucesso":        sucesso,
         "motivo_falha":   motivo_falha,
-        "custo":          score,
+        "pontuação":          score,
         "tempo_s":        round(elapsed, 4),
         "nos_expandidos": total_nodes,
         "passos":         steps,
@@ -236,7 +236,7 @@ def run_visual_instance(algo, seed):
         "seed":           seed,
         "sucesso":        deliveries >= WIN_DELIVERIES,
         "motivo_falha":   None if deliveries >= WIN_DELIVERIES else "interrompido",
-        "custo":          score,
+        "pontuação":          score,
         "tempo_s":        round(elapsed, 4),
         "nos_expandidos": _nodes_acc[0],
         "passos":         steps,
@@ -265,7 +265,7 @@ def main():
                 result = simulate(algo, seed)
                 status = "OK" if result["sucesso"] else "XX"
                 print(f"  [{status}] #{instance_num:3d} seed={seed:3d} "
-                      f"custo={result['custo']:+5d} "
+                      f"pontuação={result['pontuação']:+5d} "
                       f"tempo={result['tempo_s']:6.2f}s "
                       f"nos={result['nos_expandidos']:6d} "
                       f"entregas={result['entregas']}")
@@ -284,12 +284,12 @@ def main():
         sucessos = sum(1 for r in subset if r["sucesso"])
         t_med    = sum(r["tempo_s"] for r in subset) / len(subset)
         n_med    = sum(r["nos_expandidos"] for r in subset) / len(subset)
-        c_med    = sum(r["custo"] for r in subset if r["sucesso"] or True) / len(subset)
+        c_med    = sum(r["pontuação"] for r in subset if r["sucesso"] or True) / len(subset)
         print(f"\n  {algo.upper()}:")
         print(f"    Taxa de sucesso: {sucessos}/{len(subset)} ({100*sucessos/len(subset):.0f}%)")
-        print(f"    Custo médio:     {c_med:.1f}")
+        print(f"    pontuação média:     {c_med:.1f}")
         print(f"    Tempo médio:     {t_med:.3f}s")
-        print(f"    Nos médios:      {n_med:.0f}")
+        print(f"    Nós médios:      {n_med:.0f}")
 
     print(f"\n  Execute: python plot_results.py\n")
 
