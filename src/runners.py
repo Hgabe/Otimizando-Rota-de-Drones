@@ -1,4 +1,4 @@
-"""Execução dos algoritmos simpleai com métricas (tempo de parede, nós visitados)."""
+"""Executa algoritmos `simpleai` e consolida metricas de busca."""
 
 from __future__ import annotations
 
@@ -18,11 +18,19 @@ class StatsViewer(BaseViewer):
     """Viewer que atualiza estatísticas sem armazenar o log completo de eventos."""
 
     def log_event(self, name, description):
+        """Ignora eventos para reduzir uso de memoria durante execucoes longas.
+
+        Args:
+            name: Nome do evento emitido pelo `simpleai`.
+            description: Detalhes textuais do evento.
+        """
         return
 
 
 @dataclass
 class RunResult:
+    """Representa o resultado padronizado de uma execucao de algoritmo."""
+
     algorithm: str
     success: bool
     path_cost: float | None
@@ -43,6 +51,17 @@ def _run_inner(
     problem: DroneUrbanSearchProblem,
     graph_search: bool,
 ) -> RunResult:
+    """Executa um algoritmo e traduz o resultado para `RunResult`.
+
+    Args:
+        name: Rotulo amigavel do algoritmo.
+        algo: Funcao de busca do `simpleai`.
+        problem: Problema de busca a ser resolvido.
+        graph_search: Flag de busca em grafo.
+
+    Returns:
+        Resultado da execucao contendo status, plano e metricas.
+    """
     viewer = StatsViewer()
     t0 = time.perf_counter()
     try:
@@ -99,11 +118,19 @@ def run_algorithm(
     graph_search: bool = True,
     wall_timeout_sec: float | None = 30.0,
 ) -> RunResult:
-    """
-    Roda um algoritmo por nome: bfs, dfs, ucs, greedy, astar.
-    `visited_nodes` segue o contador do BaseViewer do simpleai (um incremento por nó
-    retirado da fringe, inclusive o objetivo quando encontrado).
-    Opcionalmente aplica timeout de parede via executor (o thread continua em segundo plano).
+    """Executa um algoritmo por nome com timeout opcional de parede.
+
+    Args:
+        problem: Problema de busca instanciado.
+        algorithm: Nome do algoritmo (`bfs`, `dfs`, `ucs`, `greedy`, `astar`).
+        graph_search: Se deve usar modo busca em grafo.
+        wall_timeout_sec: Limite de tempo de parede em segundos.
+
+    Returns:
+        Resultado consolidado da execucao.
+
+    Raises:
+        ValueError: Quando `algorithm` nao pertence ao conjunto suportado.
     """
     table = {
         "bfs": ("breadth_first", breadth_first),
@@ -145,6 +172,16 @@ def run_all_algorithms(
     graph_search: bool = True,
     wall_timeout_sec: float | None = 30.0,
 ) -> dict[str, RunResult]:
+    """Executa todos os algoritmos configurados para a mesma instancia.
+
+    Args:
+        problem: Problema de busca compartilhado.
+        graph_search: Se deve usar busca em grafo.
+        wall_timeout_sec: Timeout por algoritmo.
+
+    Returns:
+        Dicionario indexado por chave do algoritmo com seus resultados.
+    """
     out = {}
     for key in ("bfs", "dfs", "ucs", "greedy", "astar"):
         out[key] = run_algorithm(

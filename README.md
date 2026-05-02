@@ -1,29 +1,35 @@
 # Otimizando-Rota-de-Drones
 
-Planejamento de rota para um drone de entregas em grid 3D com **tempo**, **bateria**, **vento**, **obstáculos fixos**, **estações de recarga** e **zonas de exclusão temporária (TNFZ)**. O núcleo do trabalho usa a biblioteca **simpleai** (`SearchProblem`) e compara **busca em largura**, **profundidade**, **custo uniforme**, **gulosa** e **A**.
+Projeto de planejamento de rota para drone em grade 3D com restricoes de tempo, bateria, vento, obstaculos fixos, estacoes de recarga e zonas de exclusao temporaria (TNFZ). O nucleo usa `simpleai` (`SearchProblem`) e compara `bfs`, `dfs`, `ucs`, `greedy` e `astar`.
 
-## Ideia geral (por onde começar)
+## Visao geral
 
-O projeto faz **uma coisa só**, em cadeia:
+Fluxo principal do projeto:
 
-1. `**environment.py`** — inventa um “mundo”: grelha 3D, parede onde não podes voar, vento que encarece certos movimentos, zonas proibidas só durante alguns instantes, estações onde podes recarregar bateria, ponto de partida e chegada.
-2. `**search_problem.py**` — diz ao **simpleai** o que é um **estado** (onde estás, quanta bateria tens, que “instante” do relógio é), que **ações** existem (andar, esperar, recarregar), quanto **custa** cada passo e quando chegaste ao **objetivo**.
-3. `**runners.py`** — chama os cinco algoritmos do simpleai e regista tempo e nós visitados.
-4. `**run_batch.py**` — repete isso muitas vezes e grava o **CSV**.
-5. `**generate_report.py`** (opcional) — transforma o CSV numa **página HTML** mais fácil de ler.
-
-**Estado em linguagem simples:** “Estou na célula (x,y,z), com esta bateria, neste instante t do simulador.” O tempo `t` serve para as zonas temporárias: o mesmo sítio pode ser permitido no instante 2 e proibido no instante 5.
-
-**Se o objetivo for só correr e ver resultados:** instala dependências, depois `python experiments/run_batch.py` e, se quiseres gráficos, `python experiments/generate_report.py`. O código “difícil” está quase todo em `search_problem.py`; o resto é repetição e relatório.
+1. `[src/environment.py](src/environment.py)`: gera instancias (`UrbanInstance`) com mapa, vento, TNFZ e estacoes.
+2. `[src/search_problem.py](src/search_problem.py)`: define estados, acoes, custo e heuristica admissivel.
+3. `[src/runners.py](src/runners.py)`: executa os algoritmos e coleta metricas.
+4. `[experiments/run_batch.py](experiments/run_batch.py)`: roda lote de instancias e exporta CSV.
+5. `[experiments/generate_report.py](experiments/generate_report.py)`: gera relatorio HTML a partir do CSV.
 
 ## Requisitos
 
-- Python 3.10+ recomendado
-- `pygame` para a demo comparativa 3D
+- Python 3.10 ou superior
+- Dependencias em `requirements.txt`
 
-## Instalação
+## Instalacao
 
-Na raiz do repositório:
+Na raiz do repositorio:
+
+### Linux/macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Windows (PowerShell)
 
 ```powershell
 python -m venv .venv
@@ -31,78 +37,63 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Experimento em lote (métricas para o relatório)
+## Execucao em lote (metricas do relatorio)
 
-Gera **55 instâncias** (≥50 exigidas) com sementes fixas e quatro fatias (`baseline`, `no_wind`, `no_tnfz`, `low_battery`). Para cada instância roda os cinco algoritmos e grava um CSV com sucesso, custo do caminho, comprimento do plano, tempo de parede, nós visitados (contador do `BaseViewer` do simpleai), tamanho máximo da fringe e iterações.
+Roda 55 instancias (>=50) em quatro fatias (`baseline`, `no_wind`, `no_tnfz`, `low_battery`) e grava metricas em CSV.
 
-```powershell
-python experiments/run_batch.py
+```bash
+python3 experiments/run_batch.py
 ```
 
-Saída padrão: `[results/batch_runs.csv](results/batch_runs.csv)`.
+Saida padrao: `[results/batch_runs.csv](results/batch_runs.csv)`.
 
-### Ver resultados de forma visual
+Opcoes uteis:
 
-Depois de gerar o CSV, cria um **relatório HTML** com gráficos de barras (taxa de sucesso, tempo médio, nós visitados) e tabela completa com linhas de sucesso/falha destacadas:
-
-```powershell
-python experiments/generate_report.py
+```bash
+python3 experiments/run_batch.py --output results/outro.csv --timeout 45
 ```
 
-Abre `[results/report.html](results/report.html)` no navegador (duplo clique no ficheiro ou `start results\report.html` no PowerShell). Serve para apresentação oral e para copiar números para o PDF.
+`--timeout` define limite de tempo de parede por algoritmo/instancia.
 
-Opções:
+## Relatorio visual (HTML)
 
-```powershell
-python experiments/run_batch.py --output results/outro.csv --timeout 45
+Depois de gerar o CSV:
+
+```bash
+python3 experiments/generate_report.py
 ```
 
-O `--timeout` é o limite de **parede** em segundos por algoritmo; se estourar, a linha correspondente marca `timeout=true` (o thread do simpleai pode continuar em segundo plano até terminar).
+Abra `[results/report.html](results/report.html)` no navegador:
 
-## Código principal
+- Linux: `xdg-open results/report.html`
+- macOS: `open results/report.html`
+- Windows (PowerShell): `start results\\report.html`
 
+## Demo pratica 3D comparativa
 
-| Caminho                                                            | Função                                                                                                                                                                          |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[src/environment.py](src/environment.py)`                         | Geração de instâncias (`UrbanInstance`, TNFZ, vento, estações).                                                                                                                 |
-| `[src/search_problem.py](src/search_problem.py)`                   | `DroneUrbanSearchProblem` — estado `(x, y, z, battery, t)`, ações mover/esperar/recarregar, custo tempo+energia, heurística admissível (Manhattan × custo mínimo de movimento). |
-| `[src/runners.py](src/runners.py)`                                 | Execução dos algoritmos simpleai com `graph_search=True` e coleta de métricas.                                                                                                  |
-| `[experiments/run_batch.py](experiments/run_batch.py)`             | Script de lote para o CSV.                                                                                                                                                      |
-| `[experiments/generate_report.py](experiments/generate_report.py)` | Gera `results/report.html` a partir do CSV.                                                                                                                                     |
+Para apresentacao visual dos algoritmos no mesmo cenario:
 
-
-## Legado (Pygame)
-
-A demo visual antiga com A* manual (`heapq`) foi movida para `[legacy/simple_base_Astar.py](legacy/simple_base_Astar.py)`. Ela **não** faz parte do núcleo simpleai da disciplina; exige `pip install pygame` para executar.
-
-## Demo prática 3D comparativa (lado a lado)
-
-Para apresentação prática dos algoritmos (`bfs`, `dfs`, `ucs`, `greedy`, `astar`) numa **arena 3D**, usa:
-
-```powershell
-python experiments/demo_compare_3d.py
+```bash
+python3 experiments/demo_compare_3d.py
 ```
 
-Opções úteis:
+Opcoes:
 
-```powershell
-python experiments/demo_compare_3d.py --seed 7 --timeout 25 --speed 1.2 --slice baseline
+```bash
+python3 experiments/demo_compare_3d.py --seed 7 --timeout 25 --speed 1.2 --slice baseline
 ```
 
-- `--seed`: fixa a instância para repetibilidade da apresentação.
-- `--timeout`: limite (s) por algoritmo.
-- `--speed`: velocidade da animação.
-- `--slice`: `baseline`, `no_wind`, `no_tnfz`, `low_battery`.
+Controles:
 
-Controles durante a demo:
+- `SPACE`: pausar/retomar
+- `R`: reiniciar
+- `+` / `-`: ajustar velocidade
+- `ESC`: sair
 
-- `SPACE`: pausar/retomar.
-- `R`: reiniciar com mesma seed.
-- `+` / `-`: ajustar velocidade.
-- `ESC`: sair.
+## Arena legada (Pygame)
 
-Cada painel mostra o drone e a trilha de um algoritmo no **mesmo cenário**. Também exibe estado `SUCCESS`/`NO PATH`/`TIMEOUT`, custo, bateria, tempo discreto `t` e métricas de busca.
+Os scripts legados de arena ficam em `[legacy/astas3d.py](legacy/astas3d.py)`, `[legacy/run.py](legacy/run.py)` e `[legacy/plot_results.py](legacy/plot_results.py)`. O launcher simplificado na raiz e `[arena.py](arena.py)`.
 
-## Contexto do problema (enunciado)
+## Contexto academico
 
-A "eficiência" combina tempo de voo e consumo de energia; o ambiente inclui mapa 3D, vento, zonas temporariamente restritas, estações de recarga e obstáculos fixos. As simplificações e hipóteses usadas na implementação devem ser descritas no relatório (grid pequeno, tempo discretizado, vento constante por instância, etc.).
+A eficiencia combina tempo de voo e consumo de energia. As hipoteses de modelagem (grade discreta, tempo discreto, campo de vento por instancia, etc.) devem ser explicitadas no relatorio final.

@@ -1,16 +1,4 @@
-"""
-Problema de busca para o simpleai: o drone na cidade.
-
-Resumo para quem lê o código:
-- Cada *estado* é (x, y, z, bateria, t): posição na grelha, bateria restante, instante
-  discreto do simulador (o relógio avança em cada ação).
-- *Objetivo*: mesma célula que o destino definido na instância, com bateria >= 1.
-- *Ações*: andar para um vizinho 6-conexo; esperar um instante; recarregar até ao
-  máximo se estiveres numa estação (tudo isto consome tempo e/ou “energia” no custo).
-- *Custo* de um passo: combinação linear tempo + energia (pesos na UrbanInstance).
-- *Heurística*: distância Manhattan até ao destino × custo mínimo de um movimento
-  (relaxação: ignora obstáculos e TNFZ na estimativa, para não superestimar).
-"""
+"""Define o problema de busca do drone urbano para o `simpleai`."""
 
 from __future__ import annotations
 
@@ -24,12 +12,18 @@ State = tuple[int, int, int, int, int]
 
 
 class DroneUrbanSearchProblem(SearchProblem):
-    """
-    Estado: (x, y, z, battery, t).
-    Objetivo: estar na célula goal com bateria >= 1.
+    """Implementa o `SearchProblem` para navegacao do drone.
+
+    O estado e modelado como `(x, y, z, battery, t)` e o objetivo consiste em
+    atingir a celula final com bateria suficiente para permanecer operacional.
     """
 
     def __init__(self, instance: UrbanInstance):
+        """Inicializa o problema para uma instancia de ambiente.
+
+        Args:
+            instance: Instancia urbana com parametros de dinamica e mapa.
+        """
         self.instance = instance
         x, y, z = instance.start
         self.initial_state = (x, y, z, instance.initial_battery, 0)
@@ -38,15 +32,40 @@ class DroneUrbanSearchProblem(SearchProblem):
         super().__init__(self.initial_state)
 
     def is_goal(self, state: State) -> bool:
+        """Determina se o estado atende a condicao de objetivo.
+
+        Args:
+            state: Estado atual da busca.
+
+        Returns:
+            `True` quando a posicao coincide com o objetivo e bateria >= 1.
+        """
         x, y, z, b, _t = state
         return (x, y, z) == self.goal_cell and b >= 1
 
     def heuristic(self, state: State) -> float:
-        x, y, z, b, _t = state
+        """Estima custo restante com Manhattan e custo minimo por movimento.
+
+        Args:
+            state: Estado avaliado pela heuristica.
+
+        Returns:
+            Estimativa admissivel de custo ate o objetivo.
+        """
+        x, y, z, _b, _t = state
         dist = manhattan((x, y, z), self.goal_cell)
         return float(dist) * self._c_min_move
 
     def actions(self, state: State):
+        """Lista acoes validas no estado atual.
+
+        Args:
+            state: Estado atual da busca.
+
+        Returns:
+            Lista de acoes possiveis (`wait`, `move`, `recharge`) respeitando
+            limites de tempo, bateria e restricoes do ambiente.
+        """
         inst = self.instance
         x, y, z, b, t = state
         acts = []
@@ -79,6 +98,18 @@ class DroneUrbanSearchProblem(SearchProblem):
         return acts
 
     def result(self, state: State, action) -> State:
+        """Aplica uma acao ao estado e retorna o estado sucessor.
+
+        Args:
+            state: Estado atual.
+            action: Acao retornada por `actions`.
+
+        Returns:
+            Novo estado apos executar a acao.
+
+        Raises:
+            ValueError: Quando a acao informada e desconhecida.
+        """
         inst = self.instance
         x, y, z, b, t = state
         kind = action[0]
@@ -92,9 +123,22 @@ class DroneUrbanSearchProblem(SearchProblem):
         if kind == "recharge":
             rt = inst.recharge_duration
             return (x, y, z, inst.battery_max, t + rt)
-        raise ValueError(f"Ação desconhecida: {action}")
+        raise ValueError(f"Acao desconhecida: {action}")
 
     def cost(self, state: State, action, state2: State) -> float:
+        """Calcula custo ponderado de transicao tempo + energia.
+
+        Args:
+            state: Estado de origem.
+            action: Acao executada.
+            state2: Estado resultante.
+
+        Returns:
+            Custo escalar da transicao.
+
+        Raises:
+            ValueError: Quando a acao informada e desconhecida.
+        """
         inst = self.instance
         kind = action[0]
         if kind == "wait":
@@ -112,13 +156,37 @@ class DroneUrbanSearchProblem(SearchProblem):
             dt = float(rt)
             de = float(inst.recharge_idle_battery * rt)
             return inst.w_time * dt + inst.w_energy * de
-        raise ValueError(f"Ação desconhecida: {action}")
+        raise ValueError(f"Acao desconhecida: {action}")
 
     def value(self, state: State) -> float:
+        """Retorna valor neutro para compatibilidade com API do simpleai.
+
+        Args:
+            state: Estado atual.
+
+        Returns:
+            Sempre `0.0`.
+        """
         return 0.0
 
 
-def _wind_opposing(inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: int, nz: int) -> float:
+def _wind_opposing(
+    inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: int, nz: int
+) -> float:
+    """Calcula oposicao do vento ao vetor de movimento.
+
+    Args:
+        inst: Instancia com campo de vento.
+        dx: Delta de movimento no eixo X.
+        dy: Delta de movimento no eixo Y.
+        dz: Delta de movimento no eixo Z.
+        nx: Coordenada X de destino.
+        ny: Coordenada Y de destino.
+        nz: Coordenada Z de destino.
+
+    Returns:
+        Intensidade escalar nao negativa de oposicao ao movimento.
+    """
     w = inst.wind.get((nx, ny, nz), (0, 0, 0))
     dot = w[0] * dx + w[1] * dy + w[2] * dz
     return float(max(0, -dot))
@@ -127,19 +195,57 @@ def _wind_opposing(inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: 
 def _move_time_energy(
     inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: int, nz: int
 ) -> tuple[float, float]:
+    """Calcula tempo e energia de um movimento.
+
+    Args:
+        inst: Instancia com parametros de custo.
+        dx: Delta de movimento no eixo X.
+        dy: Delta de movimento no eixo Y.
+        dz: Delta de movimento no eixo Z.
+        nx: Coordenada X de destino.
+        ny: Coordenada Y de destino.
+        nz: Coordenada Z de destino.
+
+    Returns:
+        Tupla `(dt, de)` com tempo e energia consumidos.
+    """
     opp = _wind_opposing(inst, dx, dy, dz, nx, ny, nz)
     dt = 1.0 + inst.wind_time_scale * opp
     de = float(inst.move_battery_base) + inst.wind_energy_scale * opp
     return dt, de
 
 
-def _move_battery_drain(inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: int, nz: int) -> int:
+def _move_battery_drain(
+    inst: UrbanInstance, dx: int, dy: int, dz: int, nx: int, ny: int, nz: int
+) -> int:
+    """Converte o custo energetico de movimento em consumo inteiro de bateria.
+
+    Args:
+        inst: Instancia com parametros de custo.
+        dx: Delta de movimento no eixo X.
+        dy: Delta de movimento no eixo Y.
+        dz: Delta de movimento no eixo Z.
+        nx: Coordenada X de destino.
+        ny: Coordenada Y de destino.
+        nz: Coordenada Z de destino.
+
+    Returns:
+        Consumo inteiro de bateria para o movimento.
+    """
     _dt, de = _move_time_energy(inst, dx, dy, dz, nx, ny, nz)
     return int(math.ceil(de))
 
 
 def _compute_min_move_cost(inst: UrbanInstance) -> float:
-    """Menor custo de um movimento unitário válido (para h admissível com Manhattan)."""
+    """Computa o menor custo de movimento unitario possivel na instancia.
+
+    Args:
+        inst: Instancia urbana usada para varrer movimentos validos.
+
+    Returns:
+        Menor custo observado para um passo. Usa `1.0` como fallback quando
+        nao houver movimentos disponiveis.
+    """
     best = None
     for x in range(inst.nx):
         for y in range(inst.ny):
