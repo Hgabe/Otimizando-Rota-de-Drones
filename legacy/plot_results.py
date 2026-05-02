@@ -1,3 +1,5 @@
+"""Gera graficos comparativos a partir de `resultados.json` (legacy)."""
+
 import json
 import os
 import sys
@@ -12,6 +14,14 @@ LABELS = {"astar": "A*",      "greedy": "Busca Gulosa"}
  
  
 def load_results():
+    """Carrega resultados JSON de benchmark.
+
+    Returns:
+        Lista de dicionarios com resultados por instancia.
+
+    Raises:
+        SystemExit: Quando o arquivo de resultados nao existe.
+    """
     if not os.path.isfile(RESULTS_FILE):
         print(f"Arquivo '{RESULTS_FILE}' nao encontrado.")
         sys.exit(1)
@@ -20,6 +30,14 @@ def load_results():
  
  
 def split_by_algo(data):
+    """Agrupa resultados por algoritmo.
+
+    Args:
+        data: Resultados brutos do benchmark.
+
+    Returns:
+        Dicionario indexado por nome de algoritmo.
+    """
     by_algo = {}
     for r in data:
         by_algo.setdefault(r["algoritmo"], []).append(r)
@@ -27,6 +45,12 @@ def split_by_algo(data):
  
  
 def save_and_show(fig, filename):
+    """Salva figura no diretorio de saida e exibe na tela.
+
+    Args:
+        fig: Figura Matplotlib a ser salva.
+        filename: Nome do arquivo de saida (png).
+    """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     path = os.path.join(OUTPUT_DIR, filename)
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -36,6 +60,15 @@ def save_and_show(fig, filename):
  
  
 def plot_barras(by_algo, metrica, ylabel, titulo, filename):
+    """Gera grafico de barras para uma metrica agregada.
+
+    Args:
+        by_algo: Resultados agrupados por algoritmo.
+        metrica: Chave numerica usada para media.
+        ylabel: Rotulo do eixo Y.
+        titulo: Titulo da figura.
+        filename: Nome do arquivo png de saida.
+    """
     fig, ax = plt.subplots(figsize=(7, 5))
     algos  = list(by_algo.keys())
     medias = [np.mean([r[metrica] for r in by_algo[a]]) for a in algos]
@@ -61,6 +94,11 @@ def plot_barras(by_algo, metrica, ylabel, titulo, filename):
  
  
 def plot_taxa_sucesso(by_algo):
+    """Gera grafico de taxa de sucesso por algoritmo.
+
+    Args:
+        by_algo: Resultados agrupados por algoritmo.
+    """
     fig, ax = plt.subplots(figsize=(7, 5))
     algos = list(by_algo.keys())
     taxas, labels_bar = [], []
@@ -95,6 +133,7 @@ def plot_taxa_sucesso(by_algo):
  
  
 def main():
+    """Ponto de entrada para gerar todos os graficos do experimento legacy."""
     data    = load_results()
     by_algo = split_by_algo(data)
  

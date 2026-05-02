@@ -1,3 +1,5 @@
+"""Arena legada 3D com visualizacao em Pygame e busca A*/gulosa."""
+
 import pygame
 import random
 import time
@@ -6,8 +8,6 @@ import csv
 import os
 from collections import deque
 from simpleai.search import SearchProblem, astar, greedy
-
-pygame.init()
 
 WIDTH, HEIGHT       = 900, 650
 MAZE_SIZE           = 20
@@ -18,6 +18,7 @@ PLAYER_H            = 30
 TREASURE_H          = 24
 NUM_WIND_GROUPS     = 10
 MAX_WIND_TILES      = 10
+WATER_DENSITY       = 0.08
 R_ZONE_COST         = 3000
 WIND_COST           = 3
 WIN_DELIVERIES      = 5        # quantas entregas para ganhar
@@ -70,6 +71,46 @@ C_BATTERY_OK   = ( 80, 220, 120)
 C_BATTERY_LOW  = (255, 100,  60)
 C_CARGO_YES    = ( 80, 255, 180)   # HUD cor quando carregando
 C_CARGO_NO     = (160, 160, 160)   # HUD cor quando vazio
+C_WATER_TOP    = (120, 190, 255)
+C_WATER_R      = ( 70, 140, 210)
+C_WATER_L      = ( 95, 165, 235)
+
+REQUEST_QUIT = False
+REQUEST_RESTART = False
+
+
+def _poll_control_events() -> None:
+    """Captura eventos de controle mesmo durante fases de busca."""
+    global REQUEST_QUIT, REQUEST_RESTART
+    for event in pygame.event.get((pygame.QUIT, pygame.KEYDOWN)):
+        if event.type == pygame.QUIT:
+            REQUEST_QUIT = True
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                REQUEST_QUIT = True
+            elif event.key == pygame.K_r:
+                REQUEST_RESTART = True
+
+
+def _configure_display_geometry() -> tuple[int, int]:
+    """Ajusta tamanho de janela e offsets para melhorar enquadramento.
+
+    Returns:
+        Tupla `(width, height)` usada para criar a janela principal.
+    """
+    global WIDTH, HEIGHT, OFFSET_X, OFFSET_Y
+
+    display = pygame.display.Info()
+    max_w = max(960, display.current_w - 80)
+    max_h = max(720, display.current_h - 120)
+    ideal_w = 1400
+    ideal_h = 900
+
+    WIDTH = min(max_w, ideal_w)
+    HEIGHT = min(max_h, ideal_h)
+    OFFSET_X = WIDTH // 2
+    OFFSET_Y = max(80, HEIGHT // 12)
+    return WIDTH, HEIGHT
 
 def to_screen(col, row, height=0):
     sx = OFFSET_X + (col - row) * (TILE_W // 2)
@@ -233,6 +274,10 @@ def draw_floor(surface, col, row):
     draw_iso_box(surface, col, row, TILE_H//2,
                  C_FLOOR_TOP, C_FLOOR_R, C_FLOOR_L, outline_alpha=20)
 
+def draw_water(surface, col, row):
+    draw_iso_box(surface, col, row, TILE_H//2,
+                 C_WATER_TOP, C_WATER_R, C_WATER_L, outline_alpha=25)
+
 def draw_wall(surface, col, row, mult):
     altura = (TILE_H//2) + (WALL_H * mult)
     if mult == 1:
@@ -329,9 +374,9 @@ def draw_drone(surface, col, row, drone_z_px, carrying):
                           top_col=tc, right_col=rc, left_col=lc)
 
 def draw_hud(surface, score, deliveries, total, steps, level,
-             drone_z_px, battery, carrying, small_font):
+             drone_z_px, battery, carrying, small_font, algorithm_label):
     pad = 16
-    panel_w, panel_h = 270, 200
+    panel_w, panel_h = 320, 226
     hud = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
     hud.fill((12, 16, 28, 210))
     pygame.draw.rect(hud, (60, 80, 120, 180), (0, 0, panel_w, panel_h), 1)
@@ -344,23 +389,56 @@ def draw_hud(surface, score, deliveries, total, steps, level,
     cargo_text  = "SIM" if carrying else "NÃO"
 
     lines = [
-        (f"PONTOS:    {score:+d}",               C_WHITE,       0),
-        (f"ENTREGAS:  {deliveries}/{total}",      C_GOLD,       28),
-        (f"PASSOS:    {steps}",                   (160,200,255), 56),
-        (f"NIVEL:     {level} ({int(drone_z_px)}px)", cor_level, 84),
-        (f"BATERIA:   {battery}/{MAX_BATTERY}",   bat_color,   112),
-        (f"COM CARGA: {cargo_text}",              cargo_color, 140),
+        (f"ALGORITMO: {algorithm_label}",         (180,220,255), 0),
+        (f"PONTOS:    {score:+d}",               C_WHITE,       28),
+        (f"ENTREGAS:  {deliveries}/{total}",      C_GOLD,       56),
+        (f"PASSOS:    {steps}",                   (160,200,255), 84),
+        (f"NIVEL:     {level} ({int(drone_z_px)}px)", cor_level, 112),
+        (f"BATERIA:   {battery}/{MAX_BATTERY}",   bat_color,   140),
+        (f"COM CARGA: {cargo_text}",              cargo_color, 168),
     ]
     for text, color, dy in lines:
         surf = small_font.render(text, True, color)
         surface.blit(surf, (pad+12, pad+10+dy))
 
     bar_x = pad+12
-    bar_y = pad+176
+    bar_y = pad+202
     bar_w = panel_w-24
     bar_h = 8
     pygame.draw.rect(surface, (40,40,60), (bar_x, bar_y, bar_w, bar_h))
     pygame.draw.rect(surface, bat_color,  (bar_x, bar_y, int(bar_w*bat_pct), bar_h))
+
+
+def draw_legend(surface, small_font):
+    """Desenha uma legenda dos elementos visuais no canto inferior direito."""
+    panel_w, panel_h = 300, 220
+    x = WIDTH - panel_w - 16
+    y = HEIGHT - panel_h - 48
+
+    legend = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    legend.fill((12, 16, 28, 210))
+    pygame.draw.rect(legend, (60, 80, 120, 180), (0, 0, panel_w, panel_h), 1)
+    surface.blit(legend, (x, y))
+
+    title = small_font.render("LEGENDA", True, C_WHITE)
+    surface.blit(title, (x + 12, y + 10))
+
+    items = [
+        ("Drone", C_PLAYER_TOP),
+        ("Estacao de carga", C_CHARGE_TOP),
+        ("Coleta", C_COLLECT_TOP),
+        ("Entrega", C_GOAL_TOP),
+        ("Agua (layer 0)", C_WATER_TOP),
+        ("Vento", (170, 215, 255)),
+        ("Zona restrita", (140, 50, 60)),
+        ("Parede/obstaculo", C_WALL_TOP),
+    ]
+    for idx, (label, color) in enumerate(items):
+        iy = y + 38 + idx * 24
+        pygame.draw.rect(surface, color, (x + 12, iy + 2, 14, 14))
+        pygame.draw.rect(surface, (10, 10, 16), (x + 12, iy + 2, 14, 14), 1)
+        txt = small_font.render(label, True, (220, 226, 235))
+        surface.blit(txt, (x + 34, iy))
 
 def draw_message(surface, text, font, w, h):
     overlay = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -382,7 +460,7 @@ class DroneProblem(SearchProblem):
     """
 
     def __init__(self, initial_state, goals, charge_stations,
-                 mult_map, restricted_zone, wind, maze_size):
+                 mult_map, restricted_zone, wind, maze_size, water_tiles=None):
         super().__init__(initial_state=initial_state)
         self.nodes_expanded  = 0   # contador de nós expandidos
         self.goals           = goals
@@ -391,6 +469,7 @@ class DroneProblem(SearchProblem):
         self.restricted_zone = restricted_zone
         self.wind            = wind
         self.maze_size       = maze_size
+        self.water_tiles     = water_tiles or set()
 
     def _min_level_for_cell(self, pos):
         mult = self.mult_map.get(pos, 0)
@@ -398,8 +477,14 @@ class DroneProblem(SearchProblem):
 
     def actions(self, state):
         self.nodes_expanded += 1
+        # Mantem a janela responsiva durante buscas longas.
+        if self.nodes_expanded % 64 == 0:
+            _poll_control_events()
         col, row, level, battery = state
         valid_actions = []
+
+        if REQUEST_QUIT or REQUEST_RESTART:
+            return []
 
         if battery == 0:
             if (col, row) in self.charge_stations and level == 0:
@@ -418,6 +503,8 @@ class DroneProblem(SearchProblem):
                 continue
             if dest in self.restricted_zone:
                 continue
+            if level == 0 and dest in self.water_tiles:
+                continue
             new_battery = battery - 1
             if dest in self.charge_stations and level == 0:
                 new_battery = MAX_BATTERY
@@ -431,7 +518,8 @@ class DroneProblem(SearchProblem):
         if level > 0 and battery > 0:
             new_level = level - 1
             if new_level >= self._min_level_for_cell((col, row)):
-                valid_actions.append({'type': 'descend', 'levels': 1})
+                if not (new_level == 0 and (col, row) in self.water_tiles):
+                    valid_actions.append({'type': 'descend', 'levels': 1})
 
         return valid_actions
 
@@ -502,6 +590,7 @@ class DroneProblem(SearchProblem):
 def a_star_3d(start_pos, start_level, start_battery,
               goals, charge_stations,
               mult_map, restricted_zone, wind, maze_size,
+              water_tiles=None,
               _return_nodes=False, algorithm='astar'):
     """
     Wrapper que instancia DroneProblem, chama o astar do simpleai
@@ -520,6 +609,7 @@ def a_star_3d(start_pos, start_level, start_battery,
         restricted_zone= restricted_zone,
         wind           = wind,
         maze_size      = maze_size,
+        water_tiles    = water_tiles,
     )
 
     _search_fn = astar if algorithm == 'astar' else greedy
@@ -554,6 +644,15 @@ def generate_map(maze_size, num_stations):
             if p not in used and random.random() < 0.22:
                 walls.add(p)
 
+    water_tiles = set()
+    for i in range(maze_size):
+        for j in range(maze_size):
+            p = (i, j)
+            if p in used or p in walls:
+                continue
+            if random.random() < WATER_DENSITY:
+                water_tiles.add(p)
+
     mult_map, height_map = build_wall_data(walls)
 
     wind = {}
@@ -565,13 +664,13 @@ def generate_map(maze_size, num_stations):
         row = random.randint(0, maze_size-1)
         for _ in range(random.randint(1, MAX_WIND_TILES)):
             p = (col, row)
-            if p not in used and p not in walls:
+            if p not in used and p not in walls and p not in water_tiles:
                 wind[p] = wind[p] | group_levels if p in wind else group_levels
             d = random.choice([(0,1),(0,-1),(1,0),(-1,0)])
             col = max(0, min(maze_size-1, col+d[0]))
             row = max(0, min(maze_size-1, row+d[1]))
 
-    return drone_pos, charge_stations, walls, mult_map, height_map, wind
+    return drone_pos, charge_stations, walls, water_tiles, mult_map, height_map, wind
 
 _instancia_counter = [0]
 
@@ -630,8 +729,20 @@ def render_order(maze_size):
                 cells.append((col, row))
     return cells
 
-def run_game():
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+def run_game(algorithm="astar"):
+    """Executa uma simulacao completa da arena visual.
+
+    Returns:
+        Tupla `(score, deliveries, steps)` com resultado final da partida.
+    """
+    if not pygame.get_init():
+        pygame.init()
+    global REQUEST_QUIT, REQUEST_RESTART
+    REQUEST_QUIT = False
+    REQUEST_RESTART = False
+
+    width, height = _configure_display_geometry()
+    screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("Drone Cargo 3D")
     clock  = pygame.time.Clock()
 
@@ -643,13 +754,14 @@ def run_game():
         small_font = pygame.font.SysFont(None, 22)
 
     (drone_pos, charge_stations,
-     walls, mult_map, height_map, wind) = generate_map(
+     walls, water_tiles, mult_map, height_map, wind) = generate_map(
         MAZE_SIZE, NUM_CHARGE_STATIONS
     )
     order = render_order(MAZE_SIZE)
 
+    blocked_ground = walls | water_tiles
     collect_pos, goal_pos, restricted_zone = generate_cycle(
-        drone_pos, charge_stations, walls, MAZE_SIZE, MIN_DIST
+        drone_pos, charge_stations, blocked_ground, MAZE_SIZE, MIN_DIST
     )
 
     drone_level   = 0
@@ -670,28 +782,30 @@ def run_game():
 
     running    = True
     game_over  = False
+    game_over_since = None
     win_msg    = ""
     start_time = time.perf_counter()
 
     bg = pygame.Surface((WIDTH, HEIGHT))
     for y in range(HEIGHT):
-        r = int(18 + (y/HEIGHT)*10)
-        g = int(22 + (y/HEIGHT)*12)
-        b = int(36 + (y/HEIGHT)*20)
-        pygame.draw.line(bg, (r,g,b), (0,y), (WIDTH,y))
+        r = int(18 + (y / HEIGHT) * 10)
+        g = int(22 + (y / HEIGHT) * 12)
+        b = int(36 + (y / HEIGHT) * 20)
+        pygame.draw.line(bg, (r, g, b), (0, y), (WIDTH, y))
 
     while running:
         dt = clock.tick(FPS)
         pulse += dt * 0.003
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                return run_game()
+        _poll_control_events()
+        if REQUEST_QUIT:
+            running = False
+        if REQUEST_RESTART:
+            return run_game(algorithm=algorithm)
 
         if not game_over and battery <= 0:
             game_over = True
+            game_over_since = time.perf_counter()
             elapsed_fail = time.perf_counter() - start_time
             win_msg   = "SEM BATERIA! DRONE PERDIDO."
             save_metrics("astar", False, score, elapsed_fail,
@@ -718,8 +832,15 @@ def run_game():
                 escape_test = a_star_3d(
                     dest_goal, 0, bat_apos,
                     charge_stations, charge_stations,
-                    mult_map, restricted_zone, wind, MAZE_SIZE
+                    mult_map, restricted_zone, wind, MAZE_SIZE,
+                    water_tiles=water_tiles,
+                    algorithm=algorithm,
                 )
+                if REQUEST_QUIT:
+                    running = False
+                    continue
+                if REQUEST_RESTART:
+                    return run_game(algorithm=algorithm)
                 if escape_test is None:
                     current_goals = charge_stations
 
@@ -727,13 +848,21 @@ def run_game():
                 (drone_col, drone_row), drone_level, battery,
                 current_goals, charge_stations,
                 mult_map, restricted_zone, wind, MAZE_SIZE,
+                water_tiles=water_tiles,
                 _return_nodes=True,
+                algorithm=algorithm,
             )
+            if REQUEST_QUIT:
+                running = False
+                continue
+            if REQUEST_RESTART:
+                return run_game(algorithm=algorithm)
             total_nodes_expanded += n_nodes
             if result:
                 action_queue = result
             else:
                 game_over = True
+                game_over_since = time.perf_counter()
                 elapsed_fail = time.perf_counter() - start_time
                 win_msg   = "SEM CAMINHO!"
                 save_metrics("astar", False, score, elapsed_fail,
@@ -773,6 +902,7 @@ def run_game():
 
                         if deliveries >= WIN_DELIVERIES:
                             game_over = True
+                            game_over_since = time.perf_counter()
                             elapsed   = time.perf_counter() - start_time
                             win_msg   = (f"VITÓRIA! {deliveries} entregas | "
                                          f"{score:+d} pts | {elapsed:.1f}s")
@@ -780,7 +910,7 @@ def run_game():
                                          total_nodes_expanded, deliveries)
                         else:
                             collect_pos, goal_pos, restricted_zone = generate_cycle(
-                                drone_pos, charge_stations, walls,
+                                drone_pos, charge_stations, blocked_ground,
                                 MAZE_SIZE, MIN_DIST
                             )
 
@@ -812,6 +942,7 @@ def run_game():
 
                         if deliveries >= WIN_DELIVERIES:
                             game_over = True
+                            game_over_since = time.perf_counter()
                             elapsed   = time.perf_counter() - start_time
                             win_msg   = (f"VITÓRIA! {deliveries} entregas | "
                                          f"{score:+d} pts | {elapsed:.1f}s")
@@ -819,7 +950,7 @@ def run_game():
                                          total_nodes_expanded, deliveries)
                         else:
                             collect_pos, goal_pos, restricted_zone = generate_cycle(
-                                drone_pos, charge_stations, walls,
+                                drone_pos, charge_stations, blocked_ground,
                                 MAZE_SIZE, MIN_DIST
                             )
 
@@ -836,6 +967,8 @@ def run_game():
 
             if pos in walls:
                 draw_wall(screen, col, row, mult_map.get(pos, 1))
+            elif pos in water_tiles:
+                draw_water(screen, col, row)
             elif pos in restricted_zone:
                 draw_restricted_zone(screen, col, row)
             else:
@@ -857,14 +990,37 @@ def run_game():
             if (col, row) in wind:
                 draw_wind(screen, col, row)
 
-        draw_hud(screen, score, deliveries, WIN_DELIVERIES, steps,
-                 drone_level, drone_z_px, battery, carrying, small_font)
+        draw_hud(
+            screen,
+            score,
+            deliveries,
+            WIN_DELIVERIES,
+            steps,
+            drone_level,
+            drone_z_px,
+            battery,
+            carrying,
+            small_font,
+            "A*" if algorithm.lower() == "astar" else algorithm.upper(),
+        )
+        draw_legend(screen, small_font)
 
         hint = small_font.render("R = reiniciar", True, (100,120,160))
         screen.blit(hint, (WIDTH-hint.get_width()-16, HEIGHT-30))
 
         if game_over:
             draw_message(screen, win_msg, font, WIDTH, HEIGHT)
+            quit_hint = small_font.render(
+                "Encerrando automaticamente em 3s (ESC para sair agora)",
+                True,
+                (200, 210, 225),
+            )
+            screen.blit(
+                quit_hint,
+                (WIDTH // 2 - quit_hint.get_width() // 2, HEIGHT // 2 + 36),
+            )
+            if game_over_since is not None and time.perf_counter() - game_over_since >= 3.0:
+                running = False
 
         pygame.display.flip()
 

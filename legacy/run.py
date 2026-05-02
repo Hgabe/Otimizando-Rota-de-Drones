@@ -1,14 +1,11 @@
+"""Executa experimentos legacy em lote com uma instancia visual inicial."""
+
 import json
 import random
 import time
 import os
-import sys
-import signal 
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
-pygame.init()
 
 MAX_TIME_PER_INSTANCE = 5 
 from astas3d import (
@@ -25,14 +22,32 @@ ALGORITHMS    = ["astar", "greedy"]
 RESULTS_FILE  = "resultados.json"
 
 
+def _setup_headless_pygame() -> None:
+    """Configura drivers SDL em modo headless para execucao em lote."""
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+    if not pygame.get_init():
+        pygame.init()
+
+
 def simulate(algo, seed):
+    """Roda uma instancia nao visual e retorna metricas agregadas.
+
+    Args:
+        algo: Algoritmo de busca a ser usado (`astar` ou `greedy`).
+        seed: Semente da instancia.
+
+    Returns:
+        Dicionario com status, score, tempo e metadados da execucao.
+    """
     random.seed(seed)
 
-    drone_pos, charge_stations, walls, mult_map, height_map, wind = generate_map(
+    drone_pos, charge_stations, walls, water_tiles, mult_map, height_map, wind = generate_map(
         MAZE_SIZE, NUM_CHARGE_STATIONS
     )
+    blocked_ground = walls | water_tiles
     collect_pos, goal_pos, restricted_zone = generate_cycle(
-        drone_pos, charge_stations, walls, MAZE_SIZE, MIN_DIST
+        drone_pos, charge_stations, blocked_ground, MAZE_SIZE, MIN_DIST
     )
 
     drone_col, drone_row = drone_pos
@@ -75,6 +90,7 @@ def simulate(algo, seed):
                 restricted_zone=restricted_zone,
                 wind=wind,
                 maze_size=MAZE_SIZE,
+                water_tiles=water_tiles,
             )
             _res = _astar_fn(_prob_test, graph_search=True)
             total_nodes += _prob_test.nodes_expanded
@@ -85,6 +101,7 @@ def simulate(algo, seed):
             (drone_col, drone_row), drone_level, battery,
             current_goals, charge_stations,
             mult_map, restricted_zone, wind, MAZE_SIZE,
+            water_tiles=water_tiles,
             _return_nodes=True,
             algorithm=algo,
         )
@@ -131,7 +148,7 @@ def simulate(algo, seed):
                         plan_done  = True
                         break
                     collect_pos, goal_pos, restricted_zone = generate_cycle(
-                        drone_pos, charge_stations, walls, MAZE_SIZE, MIN_DIST
+                        drone_pos, charge_stations, blocked_ground, MAZE_SIZE, MIN_DIST
                     )
                     break
 
@@ -161,7 +178,7 @@ def simulate(algo, seed):
                         plan_done = True
                         break
                     collect_pos, goal_pos, restricted_zone = generate_cycle(
-                        drone_pos, charge_stations, walls, MAZE_SIZE, MIN_DIST
+                        drone_pos, charge_stations, blocked_ground, MAZE_SIZE, MIN_DIST
                     )
                     break
 
@@ -189,6 +206,15 @@ def simulate(algo, seed):
     }
 
 def run_visual_instance(algo, seed):
+    """Roda uma instancia visual unica para demonstracao do algoritmo.
+
+    Args:
+        algo: Algoritmo de busca a ser usado.
+        seed: Semente da instancia.
+
+    Returns:
+        Dicionario com metricas da instancia visual.
+    """
     print(f"\n{'='*55}")
     print(f"  INSTÂNCIA VISUAL -- {algo.upper()}  (seed={seed})")
     print(f"  Feche a janela para continuar os experimentos.")
@@ -248,6 +274,8 @@ def run_visual_instance(algo, seed):
     }
 
 def main():
+    """Executa o benchmark completo e persiste resultados em JSON."""
+    _setup_headless_pygame()
     results = []
     seeds   = list(range(1, NUM_INSTANCES + 1))
 

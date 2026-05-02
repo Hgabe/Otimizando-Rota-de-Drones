@@ -16,7 +16,11 @@ WindVec = tuple[int, int, int]
 
 @dataclass(frozen=True)
 class TNFZRegion:
-    """Cubo inclusivo [x0,x1]×[y0,y1]×[z0,z1] proibido para t0 <= t < t1."""
+    """Representa uma regiao TNFZ ativa em uma janela temporal.
+
+    A regiao e um cubo inclusivo definido por limites em `x`, `y` e `z`.
+    Ela bloqueia apenas quando `t0 <= t < t1`.
+    """
 
     x0: int
     x1: int
@@ -28,6 +32,17 @@ class TNFZRegion:
     t1: int
 
     def blocks(self, x: int, y: int, z: int, t: int) -> bool:
+        """Indica se a celula esta bloqueada na coordenada temporal.
+
+        Args:
+            x: Coordenada X da celula consultada.
+            y: Coordenada Y da celula consultada.
+            z: Coordenada Z da celula consultada.
+            t: Instante discreto da simulacao.
+
+        Returns:
+            `True` quando a celula esta dentro do cubo e a regiao esta ativa.
+        """
         if t < self.t0 or t >= self.t1:
             return False
         return (
@@ -39,7 +54,7 @@ class TNFZRegion:
 
 @dataclass
 class UrbanInstance:
-    """Ambiente estático + parâmetros de dinâmica para um episódio de planejamento."""
+    """Agrupa ambiente e parametros de dinamica para um episodio de busca."""
 
     nx: int
     ny: int
@@ -64,12 +79,44 @@ class UrbanInstance:
     experiment_slice: str = ""
 
     def in_bounds(self, x: int, y: int, z: int) -> bool:
+        """Valida se a celula pertence aos limites da grade.
+
+        Args:
+            x: Coordenada X da celula.
+            y: Coordenada Y da celula.
+            z: Coordenada Z da celula.
+
+        Returns:
+            `True` quando a celula esta dentro dos limites da instancia.
+        """
         return 0 <= x < self.nx and 0 <= y < self.ny and 0 <= z < self.nz
 
     def is_obstacle(self, x: int, y: int, z: int) -> bool:
+        """Verifica se a celula e um obstaculo fixo.
+
+        Args:
+            x: Coordenada X da celula.
+            y: Coordenada Y da celula.
+            z: Coordenada Z da celula.
+
+        Returns:
+            `True` quando a celula pertence ao conjunto de obstaculos.
+        """
         return (x, y, z) in self.obstacles
 
     def is_forbidden(self, x: int, y: int, z: int, t: int) -> bool:
+        """Verifica se a celula esta proibida no instante informado.
+
+        Args:
+            x: Coordenada X da celula.
+            y: Coordenada Y da celula.
+            z: Coordenada Z da celula.
+            t: Instante discreto de simulacao.
+
+        Returns:
+            `True` quando a celula esta fora da grade, em obstaculo, ou
+            bloqueada por alguma regiao TNFZ ativa no instante `t`.
+        """
         if not self.in_bounds(x, y, z) or self.is_obstacle(x, y, z):
             return True
         for r in self.tnfz_regions:
@@ -89,6 +136,15 @@ MOVES_6 = (
 
 
 def _tnfz_overlaps_station(reg: TNFZRegion, stations: set[Cell]) -> bool:
+    """Verifica se uma regiao TNFZ cobre alguma estacao.
+
+    Args:
+        reg: Regiao TNFZ candidata.
+        stations: Estacoes fixas da instancia.
+
+    Returns:
+        `True` quando ao menos uma estacao esta dentro da regiao.
+    """
     for sx, sy, sz in stations:
         if (
             reg.x0 <= sx <= reg.x1
@@ -115,9 +171,28 @@ def generate_instance(
     max_attempts: int = 80,
     experiment_slice: str = "",
 ) -> UrbanInstance:
-    """
-    Gera uma instância pseudoaleatória reproduzível.
-    Garante start/goal livres e pelo menos uma estação fora de obstáculo.
+    """Gera uma instancia pseudoaleatoria reproduzivel e valida.
+
+    Args:
+        seed: Semente para reproducao da instancia.
+        nx: Tamanho no eixo X.
+        ny: Tamanho no eixo Y.
+        nz: Tamanho no eixo Z.
+        obstacle_density: Densidade alvo de obstaculos fixos.
+        num_stations: Quantidade de estacoes de recarga.
+        num_tnfz: Quantidade de regioes TNFZ.
+        with_wind: Se deve gerar campo de vento.
+        with_tnfz: Se deve gerar regioes TNFZ.
+        low_battery: Se deve reduzir autonomia inicial.
+        time_horizon: Horizonte temporal maximo da simulacao.
+        max_attempts: Numero maximo de tentativas de geracao valida.
+        experiment_slice: Rotulo da fatia experimental para rastreio.
+
+    Returns:
+        Instancia valida pronta para uso pelos algoritmos de busca.
+
+    Raises:
+        RuntimeError: Quando nenhuma instancia valida e encontrada no limite.
     """
     rng = random.Random(seed)
     for _ in range(max_attempts):
@@ -153,6 +228,25 @@ def _try_build(
     time_horizon: int,
     experiment_slice: str,
 ) -> UrbanInstance | None:
+    """Tenta construir uma instancia unica.
+
+    Args:
+        rng: Gerador pseudoaleatorio local.
+        nx: Tamanho no eixo X.
+        ny: Tamanho no eixo Y.
+        nz: Tamanho no eixo Z.
+        obstacle_density: Densidade alvo de obstaculos fixos.
+        num_stations: Quantidade de estacoes de recarga.
+        num_tnfz: Quantidade de regioes TNFZ.
+        with_wind: Se deve gerar vento por celula.
+        low_battery: Se usa configuracao de bateria reduzida.
+        time_horizon: Horizonte temporal da simulacao.
+        experiment_slice: Rotulo da fatia experimental.
+
+    Returns:
+        `UrbanInstance` quando a configuracao resultante e valida; `None` caso
+        viole conectividade minima entre inicio e objetivo.
+    """
     cells = [(x, y, z) for x in range(nx) for y in range(ny) for z in range(nz)]
     obstacles = set()
     for c in cells:
@@ -238,7 +332,19 @@ def _try_build(
 def _blocks_path_3d(
     nx: int, ny: int, nz: int, obstacles: frozenset[Cell], start: Cell, goal: Cell
 ) -> bool:
-    """BFS espacial ignorando tempo/bateria: se não há caminho 6-vizinho, descarta."""
+    """Testa conectividade espacial minima ignorando tempo e bateria.
+
+    Args:
+        nx: Tamanho no eixo X.
+        ny: Tamanho no eixo Y.
+        nz: Tamanho no eixo Z.
+        obstacles: Obstaculos fixos.
+        start: Celula inicial.
+        goal: Celula de objetivo.
+
+    Returns:
+        `True` quando nao existe caminho 6-vizinho entre `start` e `goal`.
+    """
     if start in obstacles or goal in obstacles:
         return True
     q = [start]
@@ -262,4 +368,13 @@ def _blocks_path_3d(
 
 
 def manhattan(a: Cell, b: Cell) -> int:
+    """Calcula distancia Manhattan entre duas celulas 3D.
+
+    Args:
+        a: Celula de origem.
+        b: Celula de destino.
+
+    Returns:
+        Distancia Manhattan entre `a` e `b`.
+    """
     return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
